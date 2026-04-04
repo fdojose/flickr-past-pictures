@@ -1,0 +1,23 @@
+# Credentials & secrets
+flickr_api_key.txt
+flickr_oauth.json
+flickr_oauth.json.pending
+contacts.json
+
+# WhatsApp session
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Downloaded photos
+downloads/
+
+# Logs
+*.log
+
+# Node
+node_modules/
+package-lock.json
+
+# macOS
+.DS_Store
+__pycache__/
