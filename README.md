@@ -1,52 +1,55 @@
 # Flickr Past Pictures
 
-Downloads photos from your Flickr account taken on the same weekday reference (e.g. 1st Saturday of April) across multiple past years, and sends them to WhatsApp contacts.
+Downloads photos from your Flickr account taken on the same weekday reference (e.g. 1st Saturday of April) across multiple past years, and sends them to WhatsApp contacts daily.
+
+> **macOS only.** Scheduler relies on `launchd` and `pmset`.
 
 ## How it works
 
 Every day at a configured time:
 1. Finds the equivalent weekday anchor in past years (1, 5, 10, 15, 20 years ago)
-2. Downloads up to N photos per year from your Flickr account (including private photos)
-3. Sends them via WhatsApp to the contacts in `contacts.json`
+2. Downloads up to N photos per year from your Flickr account (public and private)
+3. Skips photos already downloaded (deduplication by photo ID)
+4. Sends them via WhatsApp to everyone in `contacts.json`
 
 ## Requirements
 
-- Python 3 with `requests` and `requests-oauthlib`
-- Node.js (arm64 recommended on Apple Silicon)
+- Python 3
+- Node.js (arm64 build recommended on Apple Silicon)
 - A Flickr account with API credentials
-- WhatsApp linked device session
+- WhatsApp account
 
 ```bash
 pip install requests requests-oauthlib
 npm install
 ```
 
-## Setup
+## First-time setup
 
 ### 1. Flickr API credentials
 
-Copy the example file and fill in your credentials from [flickr.com/services/apps](https://www.flickr.com/services/apps):
+Get your API key and secret from [flickr.com/services/apps](https://www.flickr.com/services/apps):
 
 ```bash
 cp flickr_api_key.txt.example flickr_api_key.txt
 ```
 
-`flickr_api_key.txt`:
+Edit `flickr_api_key.txt`:
 ```
 YOUR_API_KEY
 YOUR_API_SECRET
 ```
 
-### 2. Flickr OAuth (for private photos)
+### 2. Flickr OAuth (required for private photos)
 
-Find your Flickr NSID at [flickr.com/services/api/misc.nsid.html](https://www.flickr.com/services/api/misc.nsid.html) and run the two-step auth flow:
+Find your Flickr NSID at [flickr.com/services/api/misc.nsid.html](https://www.flickr.com/services/api/misc.nsid.html), then run the two-step auth flow:
 
 ```bash
-# Step 1 — prints an authorization URL
-python3 download_flickr_pictures.py --user-id YOUR_NSID --authenticate
+# Step 1 — opens an authorization URL
+python3 download_flickr_pictures.py --authenticate
 
 # Step 2 — paste the code shown by Flickr
-python3 download_flickr_pictures.py --user-id YOUR_NSID --verify CODE
+python3 download_flickr_pictures.py --verify CODE
 ```
 
 The access token is saved to `flickr_oauth.json` and reused automatically.
@@ -57,7 +60,7 @@ The access token is saved to `flickr_oauth.json` and reused automatically.
 cp contacts.json.example contacts.json
 ```
 
-Edit `contacts.json` with international phone numbers (no spaces):
+Edit `contacts.json` with international phone numbers:
 ```json
 {
   "me":   "+56912345678",
@@ -65,29 +68,30 @@ Edit `contacts.json` with international phone numbers (no spaces):
 }
 ```
 
-### 4. WhatsApp session (first run only)
+### 4. WhatsApp session (once only)
 
-Scan the QR code once to link the session:
+Link the session by scanning a QR code:
 
 ```bash
 node send_whatsapp.js downloads/MM/DD
 ```
 
+Scan the QR with WhatsApp on your phone → **Settings → Linked Devices → Link a Device**.  
 The session is saved to `.wwebjs_auth/` and reused on subsequent runs.
 
 ### 5. Scheduler
 
-Configure the daily schedule in `config.py`, then run the setup script once:
+Set your preferred time in `config.py`, then run:
 
 ```bash
 ./setup_scheduler.sh
 ```
 
-This registers a `launchd` agent and sets a `pmset` wake schedule so your Mac wakes automatically at the configured time.
+This registers a `launchd` agent and a `pmset` wake schedule so your Mac wakes automatically at the right time every day.
 
 ## Configuration
 
-All options are in `config.py`:
+All options in `config.py`:
 
 ```python
 SCHEDULE_HOUR   = 8       # Daily run time (local time, 24h)
@@ -101,15 +105,12 @@ MAX_PHOTOS    = 5
 SELECTION     = "random"  # "random", "first", "last", or "views"
 ```
 
-**DATE_STRATEGY:**
-- `nth_weekday` — matches the same occurrence of the weekday in the month (e.g. 1st Saturday → 1st Saturday). Better for lifestyle patterns.
-- `exact` — matches the exact calendar day (Apr 4 → Apr 4).
-
-**SELECTION:**
-- `random` — randomly picks N from all results
-- `first` — earliest taken that day
-- `last` — latest taken that day
-- `views` — most viewed photos
+| Option | Description |
+|---|---|
+| `DATE_STRATEGY` | `nth_weekday` matches the same weekday occurrence (e.g. 1st Saturday → 1st Saturday across years). `exact` matches the calendar day. |
+| `YEARS_AGO` | Which past years to search |
+| `MAX_PHOTOS` | Max photos to download per year |
+| `SELECTION` | How to pick when more are available: `random`, `first` (earliest that day), `last` (latest that day), `views` (most viewed) |
 
 After changing `SCHEDULE_HOUR` or `SCHEDULE_MINUTE`, re-run `./setup_scheduler.sh` to apply.
 
@@ -126,20 +127,22 @@ python3 download_flickr_pictures.py --output ./downloads
 node send_whatsapp.js downloads/MM/DD
 ```
 
-## File structure
+## Files
 
 ```
 config.py                   — all configuration
 download_flickr_pictures.py — Flickr downloader
 send_whatsapp.js            — WhatsApp sender
 run.sh                      — full pipeline
-setup_scheduler.sh          — configure launchd + pmset
+setup_scheduler.sh          — register launchd agent + pmset wake
 
-flickr_api_key.txt          — API key + secret (not in git)
-flickr_oauth.json           — OAuth access token (not in git)
-contacts.json               — WhatsApp recipients (not in git)
-.wwebjs_auth/               — WhatsApp session (not in git)
-downloads/                  — downloaded photos (not in git)
+flickr_api_key.txt          — API key + secret        (git ignored)
+flickr_oauth.json           — OAuth access token      (git ignored)
+contacts.json               — WhatsApp recipients     (git ignored)
+.wwebjs_auth/               — WhatsApp session        (git ignored)
+downloads/                  — downloaded photos       (git ignored)
+send_whatsapp.log           — WhatsApp send log       (git ignored)
+launchd.log                 — scheduler output log    (git ignored)
 ```
 
 ## Scheduler management
@@ -148,13 +151,22 @@ downloads/                  — downloaded photos (not in git)
 # Apply schedule changes from config.py
 ./setup_scheduler.sh
 
-# Trigger manually without waiting for scheduled time
+# Trigger immediately without waiting for scheduled time
 launchctl start com.maccasa.flickr-past-pictures
 
 # Disable
 launchctl unload ~/Library/LaunchAgents/com.maccasa.flickr-past-pictures.plist
 
-# View logs
+# Re-enable
+launchctl load ~/Library/LaunchAgents/com.maccasa.flickr-past-pictures.plist
+
+# Monitor logs
 tail -f launchd.log
 tail -f send_whatsapp.log
 ```
+
+## Notes
+
+- WhatsApp has no official personal API. This project uses [whatsapp-web.js](https://github.com/pedroslopez/whatsapp-web.js), an unofficial library. Use at your own discretion.
+- The Mac must be in sleep (not shut down) for `pmset` to wake it.
+- Photos are downloaded at original resolution when available.
