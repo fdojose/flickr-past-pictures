@@ -13,7 +13,7 @@ export NVM_DIR="$HOME/.nvm"
 OUTPUT="downloads"
 
 echo "=== Downloading photos ==="
-python3 download_flickr_pictures.py --output "$OUTPUT"
+/Library/Frameworks/Python.framework/Versions/3.11/bin/python3 download_flickr_pictures.py --output "$OUTPUT"
 
 # Derive today's MM/DD folder (matches what the Python script creates)
 FOLDER="$OUTPUT/$(date +%m)/$(date +%d)"

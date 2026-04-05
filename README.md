@@ -165,6 +165,16 @@ tail -f launchd.log
 tail -f send_whatsapp.log
 ```
 
+## Troubleshooting
+
+### `ModuleNotFoundError: No module named 'requests'` at scheduled time
+
+`launchd` runs with a minimal environment where `python3` on `$PATH` may not be the same binary you installed packages into. `run.sh` uses the full path `/Library/Frameworks/Python.framework/Versions/3.11/bin/python3` to avoid this. If you upgrade Python or use a different installation, update that path in `run.sh` accordingly.
+
+### `pmset` wake not re-scheduled after reboot
+
+The `pmset` wake entry is one-shot — it fires once and is not automatically re-added. Re-run `./setup_scheduler.sh` after a reboot or if the Mac was shut down (not just slept) to restore the daily wake.
+
 ## Notes
 
 - WhatsApp has no official personal API. This project uses [whatsapp-web.js](https://github.com/pedroslopez/whatsapp-web.js), an unofficial library. Use at your own discretion.
