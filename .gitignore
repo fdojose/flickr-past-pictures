@@ -21,3 +21,9 @@ package-lock.json
 # macOS
 .DS_Store
 __pycache__/
+
+# casa.local deployment
+.env
+today/
+whatsapp_qr.png
+*.orig.bak

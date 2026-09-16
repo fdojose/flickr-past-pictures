@@ -2,26 +2,29 @@
  * Send downloaded photos to all WhatsApp recipients defined in contacts.json.
  *
  * Usage:
- *   node send_whatsapp.js <folder>
- *
- * Arguments:
- *   folder  Path to a folder whose images will be sent (jpg, jpeg, png, gif).
- *           Subfolders are searched recursively.
+ *   node send_whatsapp.js <folder>     send every image under <folder> (recursive)
+ *   node send_whatsapp.js --link       link this machine once: writes the QR code to
+ *                                      whatsapp_qr.png (and prints it) until it is scanned
  *
  * Recipients are read from contacts.json in the same directory:
  *   { "me": "34612345678", "kid1": "34698765432" }
  *   Numbers must be in international format without + or spaces.
  *
- * First run: a QR code will be printed in the terminal — scan it with
- * WhatsApp on your phone (Settings → Linked Devices → Link a Device).
- * The session is saved in .wwebjs_auth/ and reused on subsequent runs.
+ * First run: link with --link and scan the QR with WhatsApp on your phone
+ * (Settings → Linked Devices → Link a Device). The session is saved in
+ * .wwebjs_auth/ and reused on subsequent runs.
+ *
+ * Environment:
+ *   PUPPETEER_EXECUTABLE_PATH   use this Chromium instead of puppeteer's bundled one
+ *                               (set in the casa.local image to /usr/bin/chromium)
  *
  * Example:
  *   node send_whatsapp.js downloads/04/04
  */
 
 const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
-const qrcode = require("qrcode-terminal");
+const qrcodeTerminal = require("qrcode-terminal");
+const QRCode = require("qrcode");
 const fs = require("fs");
 const path = require("path");
 
@@ -30,6 +33,7 @@ const path = require("path");
 // ---------------------------------------------------------------------------
 
 const LOG_FILE = path.join(__dirname, "send_whatsapp.log");
+const QR_FILE = path.join(__dirname, "whatsapp_qr.png");
 
 function log(level, msg) {
   const line = `${new Date().toISOString()} [${level}] ${msg}`;
@@ -47,14 +51,15 @@ const SEND_DELAY_MS = 2000;
 // ---------------------------------------------------------------------------
 
 const [, , folder] = process.argv;
+const LINK_MODE = folder === "--link";
 
 if (!folder) {
-  console.error("Usage: node send_whatsapp.js <folder>");
+  console.error("Usage: node send_whatsapp.js <folder> | --link");
   console.error("  folder  e.g. downloads/04/04");
   process.exit(1);
 }
 
-if (!fs.existsSync(folder)) {
+if (!LINK_MODE && !fs.existsSync(folder)) {
   console.error(`Folder not found: ${folder}`);
   process.exit(1);
 }
@@ -63,21 +68,24 @@ if (!fs.existsSync(folder)) {
 // Recipients from contacts.json
 // ---------------------------------------------------------------------------
 
-const contactsFile = path.join(__dirname, "contacts.json");
-if (!fs.existsSync(contactsFile)) {
-  console.error("contacts.json not found. Create it with your recipients.");
-  process.exit(1);
+let contactEntries = [];
+if (!LINK_MODE) {
+  const contactsFile = path.join(__dirname, "contacts.json");
+  if (!fs.existsSync(contactsFile)) {
+    console.error("contacts.json not found. Create it with your recipients.");
+    process.exit(1);
+  }
+
+  const contacts = JSON.parse(fs.readFileSync(contactsFile, "utf8"));
+  contactEntries = Object.entries(contacts);
+
+  if (contactEntries.length === 0) {
+    console.error("No recipients found in contacts.json.");
+    process.exit(1);
+  }
+
+  log("INFO", `Recipients: ${contactEntries.map(([name]) => name).join(", ")}`);
 }
-
-const contacts = JSON.parse(fs.readFileSync(contactsFile, "utf8"));
-const contactEntries = Object.entries(contacts);
-
-if (contactEntries.length === 0) {
-  console.error("No recipients found in contacts.json.");
-  process.exit(1);
-}
-
-log("INFO", `Recipients: ${contactEntries.map(([name]) => name).join(", ")}`);
 
 // ---------------------------------------------------------------------------
 // Collect image files recursively
@@ -98,30 +106,54 @@ function collectImages(dir) {
   return results;
 }
 
-const images = collectImages(folder);
+let images = [];
+if (!LINK_MODE) {
+  images = collectImages(folder);
 
-if (images.length === 0) {
-  console.error(`No images found in: ${folder}`);
-  process.exit(1);
+  if (images.length === 0) {
+    console.error(`No images found in: ${folder}`);
+    process.exit(1);
+  }
+
+  log("INFO", `Found ${images.length} image(s) in ${folder}`);
 }
-
-log("INFO", `Found ${images.length} image(s) in ${folder}`);;
 
 // ---------------------------------------------------------------------------
 // WhatsApp client
 // ---------------------------------------------------------------------------
 
+const puppeteerOptions = {
+  headless: true,
+  args: [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+  ],
+};
+if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+  puppeteerOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+}
+
 const client = new Client({
   authStrategy: new LocalAuth(),
-  puppeteer: {
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  },
+  puppeteer: puppeteerOptions,
 });
 
+let qrCount = 0;
+
 client.on("qr", (qr) => {
-  log("INFO", "QR code ready — scan with WhatsApp (Settings → Linked Devices → Link a Device)");
-  qrcode.generate(qr, { small: true });
+  if (LINK_MODE) {
+    qrCount += 1;
+    QRCode.toFile(QR_FILE, qr, { scale: 8, margin: 2 })
+      .then(() => log("INFO", `QR #${qrCount} written to ${QR_FILE} — scan it with WhatsApp (Settings → Linked Devices → Link a Device).`))
+      .catch((err) => log("WARN", `Could not write ${QR_FILE}: ${err.message}`));
+    qrcodeTerminal.generate(qr, { small: true });
+    return;
+  }
+  log("ERROR", "WhatsApp session expired — QR scan required. Run `node send_whatsapp.js --link` to re-authenticate, then the scheduler will work again.");
+  // Exit directly: destroy() while the client is still injecting only produces a puppeteer stack trace.
+  setTimeout(() => process.exit(1), 500);
 });
 
 client.on("authenticated", () => {
@@ -136,6 +168,15 @@ client.on("auth_failure", (msg) => {
 client.on("ready", async () => {
   clearTimeout(initTimeout);
   log("INFO", "WhatsApp client ready.");
+
+  if (LINK_MODE) {
+    // Give the browser profile a moment to flush the session to disk before closing.
+    await sleep(10_000);
+    if (fs.existsSync(QR_FILE)) fs.unlinkSync(QR_FILE);
+    log("INFO", "Linked. Session saved in .wwebjs_auth/ — the scheduled runs can now send.");
+    await client.destroy();
+    process.exit(0);
+  }
 
   for (const [name, rawPhone] of contactEntries) {
     const normalized = rawPhone.replace(/[+\s]/g, "");
@@ -174,10 +215,11 @@ client.on("disconnected", (reason) => {
   process.exit(1);
 });
 
-// Fail fast if WhatsApp doesn't connect within 60 seconds
+// Fail if WhatsApp doesn't connect in time (linking gets longer: QR codes refresh while you scan)
+const INIT_TIMEOUT_MS = LINK_MODE ? 600_000 : 120_000;
 const initTimeout = setTimeout(() => {
-  log("ERROR", "Timed out waiting for WhatsApp to be ready (60s). Try again or delete .wwebjs_auth/ to force a fresh login.");
+  log("ERROR", `Timed out waiting for WhatsApp to be ready (${INIT_TIMEOUT_MS / 1000}s). Try again or delete .wwebjs_auth/ to force a fresh login.`);
   client.destroy().finally(() => process.exit(1));
-}, 60_000);
+}, INIT_TIMEOUT_MS);
 
 client.initialize();

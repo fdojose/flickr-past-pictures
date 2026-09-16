@@ -2,7 +2,7 @@
 
 Downloads photos from your Flickr account taken on the same weekday reference (e.g. 1st Saturday of April) across multiple past years, and sends them to WhatsApp contacts daily.
 
-> **macOS only.** Scheduler relies on `launchd` and `pmset`.
+> Runs on macOS (`launchd` + `pmset`) or, preferred, on the home server casa.local in Docker (see below).
 
 ## How it works
 
@@ -88,6 +88,35 @@ Set your preferred time in `config.py`, then run:
 ```
 
 This registers a `launchd` agent and a `pmset` wake schedule so your Mac wakes automatically at the right time every day.
+
+## Running on casa.local (Docker, cron)
+
+The same code runs on the home server so the Mac no longer has to be awake at 08:00.
+Files live in `~/flickr` on casa.local (bind-mounted into the container); see `Dockerfile`
+and `docker-compose.yml`. Deploy from the Mac:
+
+```bash
+./deploy_to_casa.sh            # copy the code (tar over ssh; casa has no rsync)
+./deploy_to_casa.sh --build    # also rebuild the image when Dockerfile or package.json changed
+```
+
+Secrets (`flickr_api_key.txt`, `flickr_oauth.json`, `contacts.json`) are copied once with `scp`;
+`.env` holds `HA_WEBHOOK_URL` (see `.env.example`). Link WhatsApp once:
+
+```bash
+ssh fernando@casa.local 'cd flickr && docker compose run --rm flickr node send_whatsapp.js --link'
+```
+
+It writes `whatsapp_qr.png` (copy it to the Mac and scan it; each code is valid for about a minute,
+the file is rewritten with a fresh one until you scan). The daily run is the host crontab:
+
+```
+0 8 * * * cd $HOME/flickr && docker compose run --rm flickr >> cron.log 2>&1
+```
+
+After each run `today/` holds a flat copy of the day's photos and Home Assistant is told through
+a webhook (`homeassistant/` is documented in the house_automation controller folder: package
+`flickr.yaml`, dashboard `casa-memories`, media browser under `flickr`).
 
 ## Configuration
 

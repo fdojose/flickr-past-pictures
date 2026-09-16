@@ -1,0 +1,27 @@
+# flickr_past_pictures on casa.local. Code, secrets, WhatsApp session and photos live in ~/flickr
+# (bind-mounted at /app), so an update is: rsync the files from the Mac, then
+# `docker compose build` only if Dockerfile or package.json changed.
+#
+# Daily run is the host crontab (no long-running container):
+#   0 8 * * *  cd $HOME/flickr && docker compose run --rm flickr >> cron.log 2>&1
+# Link WhatsApp once (writes whatsapp_qr.png, scan it with the phone):
+#   docker compose run --rm flickr node send_whatsapp.js --link
+services:
+  flickr:
+    build: .
+    image: flickr-past-pictures:latest
+    network_mode: host            # Home Assistant webhook at 127.0.0.1:8123
+    user: "${FLICKR_UID:-1000}:${FLICKR_GID:-1000}"
+    working_dir: /app
+    shm_size: 512m                # Chromium needs more than Docker's 64 MB /dev/shm
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    volumes:
+      - ./:/app
+    environment:
+      - TZ=America/Santiago
+      - HOME=/tmp
+      - PYTHONUNBUFFERED=1
+      - HA_WEBHOOK_URL=${HA_WEBHOOK_URL:-}   # from .env; empty = skip the Home Assistant call
+    command: ["bash", "run.sh"]
