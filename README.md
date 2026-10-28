@@ -111,7 +111,8 @@ It writes `whatsapp_qr.png` (copy it to the Mac and scan it; each code is valid 
 the file is rewritten with a fresh one until you scan). The daily run is the host crontab:
 
 ```
-0 8 * * * cd $HOME/flickr && docker compose run --rm flickr >> cron.log 2>&1
+0 8 * * *  cd $HOME/flickr && docker compose run --rm flickr >> cron.log 2>&1
+0 12 * * * cd $HOME/flickr && [ -z "$(ls today)" ] && docker compose run --rm flickr >> cron.log 2>&1   # retry if 08:00 got nothing (Flickr API outage)
 ```
 
 After each run `today/` holds a flat copy of the day's photos and Home Assistant is told through
